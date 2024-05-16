@@ -1,16 +1,19 @@
-const request = require('request');
-const express = require('express');
-require('dotenv').config();
-const bodyParser = require('body-parser');
-const fs = require('fs');
+import {gql, request} from 'graphql-request'
+import util from 'util';
+import express from 'express';
+import dotenv from 'dotenv';
+dotenv.config();
+import axios from 'axios';
+import bodyParser from 'body-parser';
+import fs from 'fs';
 const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // Replace these values with your actual Jira credentials
-const clientId = process.env.CLIENT_ID;
-const clientSecret = process.env.CLIENT_SECRET;
+const clientId = process.env.PM_BY_SYNYCS_CLIENT_ID;
+const clientSecret = process.env.PM_BY_SYNYCS_CLIENT_SECRET;
 const redirectUri = process.env.REDIRECT_URI;
-const scope = process.env.SCOPE;
+const scope = process.env.PM_BY_SYNYCS_REST_SCOPE;
 const jiraUrl = 'https://auth.atlassian.com/authorize';
 
 
@@ -47,7 +50,6 @@ app.get('/pm/auth', async (req, res) => {
         accessToken = json.access_token;
         // console.log('Access token:', accessToken);
 
-        
         fs.writeFileSync('token.json', jsonToken);
       
         res.send({accessToken})
@@ -56,7 +58,7 @@ app.get('/pm/auth', async (req, res) => {
         console.error('Error exchanging authorization code for access token:', response.status);
       }
     
-      const clientId = await fetch("https://api.atlassian.com/oauth/token/accessible-resources", {
+      const cloudId = await fetch("https://api.atlassian.com/oauth/token/accessible-resources", {
             method: "GET",
             headers: {
               Authorization: `Bearer ${accessToken}`,
@@ -64,11 +66,11 @@ app.get('/pm/auth', async (req, res) => {
             },
           });
         
-          if (clientId) {
-            const data = await clientId.json(); // Parse the response data as JSON
+          if (cloudId) {
+            const data = await cloudId.json(); // Parse the response data as JSON
             console.log('Data received:', data);
-            let jsonClientId = JSON.stringify(data)
-            fs.writeFileSync('clientId.json', jsonClientId)
+            let jsonCloudId = JSON.stringify(data)
+            fs.writeFileSync('cloudId.json', jsonCloudId)
             // Now you can work with the data object
           } else {
             console.error('Error fetching data:', response);
@@ -83,42 +85,78 @@ app.get('/pm/auth', async (req, res) => {
 
 
 
+    
 
-// Step 3: Authorize calls to the product APIs using the access token
-function makeAPICall(endpoint, callback) {
-    const options = {
-        url: `${jiraUrl}${endpoint}`,
-        headers: {
-            Authorization: `Bearer ${accessToken}`
+app.post('/teams', async (req, res)=>{
+  try{
+  
+const endpoint = 'https://synycsgroup-team.atlassian.net/gateway/api/graphql';
+
+const query = gql`query example {
+  jira {
+    allJiraProjects(cloudId: "15ac5d1a-09d5-40f2-910e-3c09d5568c3b", filter: {types: [SOFTWARE]}) {
+      pageInfo {
+        hasNextPage
+      }
+      edges {
+        node {
+          key
+          name
+          opsgenieTeamsAvailableToLinkWith {
+            pageInfo {
+              hasNextPage
+            }
+            edges {
+              node {
+                id
+                name
+              }
+            }
+          }
         }
-    };
+      }
+    }
+  }
+}`
 
-    request(options, callback);
+
+let teamQery = gql`query example {
+  me {
+    user {
+      ... on AtlassianAccountUser {
+        accountId
+        accountStatus
+        name
+        picture
+      }
+    }
+  }
+}`
+const teamId = '56c0792c-75cd-46d9-b187-8a41f35d2ea6'
+const tokenFile = fs.readFileSync('token.json')
+    let token = JSON.parse(tokenFile);
+    token = token.access_token
+
+const headers = {
+  Authorization: `Bearer ${token}`,
+  "X-ExperimentalApi" : "confluence-agg-beta"
+};
+
+console.log(`teamQuery: ${teamQery}`)
+// Send the request to the GraphQL server
+const response = await request({url: endpoint, document: teamQery,  variables: {}, requestHeaders: headers});
+
+res.send(response)
+}catch(err){
+  res.status(500).send(err);
 }
+})
 
-// Example API call
-app.get('/api/call', (req, res) => {
-    makeAPICall('/rest/api/3/issue/ISSUE-KEY', (error, response, body) => {
-        if (!error && response.statusCode === 200) {
-            res.send(body);
-        } else {
-            res.send('Error making API call.');
-        }
-    });
-});
-
-// Step 4: Check site access for the app
-app.get('/check-access', (req, res) => {
-    makeAPICall('/rest/api/3/myself', (error, response, body) => {
-        if (!error && response.statusCode === 200) {
-            res.send('App has access to the Jira site.');
-        } else {
-            res.send('App does not have access to the Jira site.');
-        }
-    });
-});
 
 const port = 3000;
+
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
+
+
