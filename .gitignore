@@ -1,2 +1,5 @@
 /.env
 /node_modules
+/token.json
+/cloudId.json
+token.json

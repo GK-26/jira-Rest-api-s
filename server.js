@@ -1,13 +1,16 @@
-import {gql, request} from 'graphql-request'
+import {gql, GraphQLClient, request} from 'graphql-request'
 import util from 'util';
 import express from 'express';
 import dotenv from 'dotenv';
 dotenv.config();
-import axios from 'axios';
 import bodyParser from 'body-parser';
 import fs from 'fs';
+import {teamSearch} from './queries.js'
+import { getUserByID } from './queries.js';
+import {jiraTeams} from './queries.js'
 const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
+export {app}
 
 // Replace these values with your actual Jira credentials
 const clientId = process.env.PM_BY_SYNYCS_CLIENT_ID;
@@ -22,6 +25,7 @@ app.get('/authorize', (req, res) => {
     const authorizationUrl = `${jiraUrl}?audience=api.atlassian.com&client_id=${clientId}&scope=${scope}&redirect_uri=${redirectUri}&state=1234&response_type=code&prompt=consent`;
     res.redirect(authorizationUrl);
 });
+
 
 // Step 2: Exchange the authorization code for an access token
 app.get('/pm/auth', async (req, res) => {
@@ -48,7 +52,7 @@ app.get('/pm/auth', async (req, res) => {
         const json = await response.json();
         let jsonToken = JSON.stringify(json);
         accessToken = json.access_token;
-        // console.log('Access token:', accessToken);
+
 
         fs.writeFileSync('token.json', jsonToken);
       
@@ -68,7 +72,7 @@ app.get('/pm/auth', async (req, res) => {
         
           if (cloudId) {
             const data = await cloudId.json(); // Parse the response data as JSON
-            console.log('Data received:', data);
+
             let jsonCloudId = JSON.stringify(data)
             fs.writeFileSync('cloudId.json', jsonCloudId)
             // Now you can work with the data object
@@ -82,56 +86,13 @@ app.get('/pm/auth', async (req, res) => {
     }});
 
 
-
-
-
-    
-
 app.post('/teams', async (req, res)=>{
   try{
   
 const endpoint = 'https://synycsgroup-team.atlassian.net/gateway/api/graphql';
-
-const query = gql`query example {
-  jira {
-    allJiraProjects(cloudId: "15ac5d1a-09d5-40f2-910e-3c09d5568c3b", filter: {types: [SOFTWARE]}) {
-      pageInfo {
-        hasNextPage
-      }
-      edges {
-        node {
-          key
-          name
-          opsgenieTeamsAvailableToLinkWith {
-            pageInfo {
-              hasNextPage
-            }
-            edges {
-              node {
-                id
-                name
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}`
+const endpoint2 = 'https://api.atlassian.com/graphql';
 
 
-let teamQery = gql`query example {
-  me {
-    user {
-      ... on AtlassianAccountUser {
-        accountId
-        accountStatus
-        name
-        picture
-      }
-    }
-  }
-}`
 const teamId = '56c0792c-75cd-46d9-b187-8a41f35d2ea6'
 const tokenFile = fs.readFileSync('token.json')
     let token = JSON.parse(tokenFile);
@@ -139,13 +100,23 @@ const tokenFile = fs.readFileSync('token.json')
 
 const headers = {
   Authorization: `Bearer ${token}`,
-  "X-ExperimentalApi" : "confluence-agg-beta"
 };
 
-console.log(`teamQuery: ${teamQery}`)
+const client = new GraphQLClient(endpoint, {
+  method: "POST",
+  headers : {
+    Authorization: `Bearer ${token}`,
+    "X-ExperimentalApi" : "confluence-agg-beta"
+  }
+})
 // Send the request to the GraphQL server
-const response = await request({url: endpoint, document: teamQery,  variables: {}, requestHeaders: headers});
-
+// const response = await client.request({document: getUserByID,  variables: {}});
+const response = await request({
+  url : endpoint,
+  document : jiraTeams,
+  variables : {},
+  requestHeaders : headers
+})
 res.send(response)
 }catch(err){
   res.status(500).send(err);
@@ -153,8 +124,10 @@ res.send(response)
 })
 
 
-const port = 3000;
+import { dashboard } from './controllers/dashboard.controller.js';
+app.get('/dashboard', dashboard)
 
+const port = 3000;
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
